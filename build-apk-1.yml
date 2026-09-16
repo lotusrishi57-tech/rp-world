@@ -1,0 +1,171 @@
+name: Build RP World APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "RP-World-starter.zip"
+      - ".github/workflows/build-apk.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Android project
+        shell: bash
+        run: |
+          set -e
+          mkdir -p buildsrc
+          unzip -q RP-World-starter.zip -d buildsrc/web
+          cat > settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "RPWorld"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          mkdir -p app/src/main/java/com/rpworld/app
+          mkdir -p app/src/main/assets
+
+          cat > app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.rpworld.app'
+              compileSdk 35
+              defaultConfig {
+                  applicationId 'com.rpworld.app'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+          EOF
+
+          cp buildsrc/web/app/globals.css app/src/main/assets/ 2>/dev/null || true
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <application android:theme="@style/AppTheme" android:label="RP World" android:resizeableActivity="true">
+                  <activity android:name=".MainActivity" android:screenOrientation="portrait" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">#8b5cf6</item>
+                  <item name="android:navigationBarColor">#09090b</item>
+                  <item name="android:statusBarColor">#09090b</item>
+                  <item name="android:windowLightStatusBar">false</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/java/com/rpworld/app/MainActivity.java <<'EOF'
+          package com.rpworld.app;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+              @Override public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  WebView web = new WebView(this);
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setAllowFileAccess(true);
+                  web.setWebViewClient(new WebViewClient());
+                  web.loadUrl("file:///android_asset/index.html");
+                  setContentView(web);
+              }
+              @Override public void onBackPressed() {
+                  WebView web = (WebView) findViewById(android.R.id.content);
+                  super.onBackPressed();
+              }
+          }
+          EOF
+
+          cat > app/src/main/assets/index.html <<'EOF'
+          <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+          <meta name="theme-color" content="#09090b"><title>RP World</title>
+          <style>
+          *{box-sizing:border-box}body{margin:0;background:#09090b;color:#f4f4f5;font-family:Arial,sans-serif}
+          header{height:64px;border-bottom:1px solid #27272a;display:flex;align-items:center;padding:0 16px;font-weight:800}
+          .brand{font-size:22px}.brand span{color:#a78bfa}.wrap{max-width:900px;margin:auto;padding:24px 16px}
+          .hero{padding:35px 0}.hero h1{font-size:42px;line-height:1.05;margin:0}.hero h1 span{color:#a78bfa}
+          .muted{color:#a1a1aa;line-height:1.6}.grid{display:grid;gap:14px}.card{background:#111113;border:1px solid #27272a;border-radius:20px;padding:18px}
+          input,textarea,select{width:100%;background:#18181b;color:white;border:1px solid #3f3f46;border-radius:12px;padding:12px;margin-top:7px}
+          button{background:#8b5cf6;color:white;border:0;border-radius:12px;padding:12px 16px;font-weight:800;cursor:pointer}
+          .ghost{background:#18181b;border:1px solid #3f3f46}.row{display:flex;gap:8px;flex-wrap:wrap}
+          .chat{height:calc(100vh - 145px);overflow:auto;display:flex;flex-direction:column;gap:10px;padding:15px}
+          .msg{max-width:82%;padding:11px 14px;border-radius:17px;line-height:1.55;white-space:pre-wrap}.bot{background:#18181b;align-self:flex-start}.me{background:#7c3aed;align-self:flex-end}
+          label{display:block;font-size:13px;color:#d4d4d8;margin-top:12px}.top{display:flex;align-items:center;gap:10px}
+          </style></head><body>
+          <header><div class="brand">RP <span>World</span></div></header>
+          <div id="app"></div>
+          <script>
+          const saved=JSON.parse(localStorage.getItem('rp_char')||'null');
+          const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+          function home(){document.getElementById('app').innerHTML=`<div class="wrap"><section class="hero">
+          <p>✨ Custom AI roleplay</p><h1>Your characters.<br><span>Your world.</span></h1>
+          <p class="muted">Create characters and start immersive roleplay directly on your phone.</p>
+          <div class="row"><button onclick="create()">Create Character</button><button class="ghost" onclick="chat()">Open Chat</button></div></section>
+          ${saved?`<div class="card"><b>${esc(saved.name)}</b><p class="muted">${esc(saved.role)}</p><button onclick="chat()">Continue roleplay →</button></div>`:''}</div>`}
+          function create(){document.getElementById('app').innerHTML=`<div class="wrap"><div class="top"><button class="ghost" onclick="home()">←</button><h2>Create Character</h2></div>
+          <div class="card"><label>Name<input id="name" placeholder="e.g. Keerthana"></label><label>Role / Tagline<input id="role" placeholder="Warm-hearted neighbor"></label>
+          <label>Backstory / Personality<textarea id="person" rows="7" placeholder="Personality, backstory, speaking style..."></textarea></label>
+          <label>First Message<textarea id="first" rows="4" placeholder="*smiles* Hey..."></textarea></label>
+          <label>Preferred Language<select id="lang"><option>Tanglish</option><option>English</option><option>Tamil</option></select></label>
+          <button style="margin-top:18px;width:100%" onclick="save()">Save Character</button></div></div>`}
+          function save(){let c={name:name.value.trim()||'My Character',role:role.value,person:person.value,first:first.value,lang:lang.value};localStorage.setItem('rp_char',JSON.stringify(c));home()}
+          let msgs=[];
+          function chat(){let c=JSON.parse(localStorage.getItem('rp_char')||'null');msgs=c&&c.first?[{r:'b',t:c.first}]:[{r:'b',t:'*smiles softly* Hey... welcome to RP World. Create a character and start your story!'}];
+          renderChat()}
+          function renderChat(){let c=JSON.parse(localStorage.getItem('rp_char')||'null');document.getElementById('app').innerHTML=`<div class="top" style="padding:10px 15px;border-bottom:1px solid #27272a"><button class="ghost" onclick="home()">←</button><b>${esc(c?.name||'RP World')}</b></div>
+          <div class="chat" id="chat">${msgs.map(m=>`<div class="msg ${m.r==='m'?'me':'bot'}">${esc(m.t).replace(/\\*([^*]+)\\*/g,'<i>*$1*</i>')}</div>`).join('')}</div>
+          <form style="display:flex;gap:8px;padding:10px;border-top:1px solid #27272a" onsubmit="send(event)"><input id="text" placeholder="Type your message..." autocomplete="off"><button>➤</button></form>`;document.getElementById('chat').scrollTop=999999}
+          function send(e){e.preventDefault();let x=text.value.trim();if(!x)return;msgs.push({r:'m',t:x});renderChat();setTimeout(()=>{let c=JSON.parse(localStorage.getItem('rp_char')||'null');let reply=c?.lang==='Tamil'?'*சிரிக்கிறாள்* சரி... நம்ம கதையை ஆரம்பிக்கலாம்.':c?.lang==='Tanglish'?'*smiles softly* Seri... namma story start pannalaam.':'*smiles softly* Okay... let’s begin our story.';msgs.push({r:'b',t:reply});renderChat()},450)}
+          home();
+          </script></body></html>
+          EOF
+
+      - name: Build APK
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.10.2
+
+      - name: Assemble debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RP-World-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
